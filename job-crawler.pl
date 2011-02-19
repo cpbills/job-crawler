@@ -49,7 +49,7 @@ my $DATE = `/bin/date +%F`; chomp $DATE;
 my $SUBJECT = "Job Crawler $DATE";
 
 # time in seconds to sleep between www queries
-my $DELAY       = 5;
+my $DELAY       = 2;
 
 # should we send an email summary when done?
 my $DO_EMAIL    = 0;
@@ -246,6 +246,7 @@ sub get_page {
     my $req = HTTP::Request->new(GET => $url);
     my $res = $browser->request($req);
     if ($res->is_success) {
+        sleep $DELAY;
         return $res->content;
     }
     print STDERR "problem fetching $url ($!)\n" if ($DEBUG);
