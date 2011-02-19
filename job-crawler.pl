@@ -52,7 +52,7 @@ my $options = &read_config();
 my $terms   = $$options{terms};
 my $locales = $$options{locales};
 
-$DEBUG = 1 if ($$options{debug} == 1 or $opts{d});
+$DEBUG = 1 if ($$options{debug} or $opts{d});
 $$options{email} = $opts{e} if ($opts{e});
 $$options{depth} = $opts{D} if (defined $opts{D});
 
