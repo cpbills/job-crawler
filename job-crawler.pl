@@ -19,20 +19,7 @@ use warnings;
 use strict;
 
 use LWP::UserAgent;
-
-# this hash holds the words we want to find in a job posting, and what we
-# value them at. could be read in from a configuration file down the road...
-# spaces should be escaped (put a '\' in front of any characters you think
-# may cause problems. the search mechanism is pretty rudimentary, and searches
-# for (word-boundary)exactmatch(word-boundary)... room for improvement...
-my %TERMS = (
-    'linux'                     =>  5,
-    'windows'                   =>  -1,
-    'mysql'                     =>  2,
-    'perl'                      =>  6,
-    'active\ directory'         =>  -2
-);
-
+use Getopt::Std;
 
 # get today's date in YYYY-MM-DD format (default) can be configured how you like
 # `man strftime` for formatting help...
@@ -42,23 +29,50 @@ my $DATE = `/bin/date +%F`; chomp $DATE;
 # note: this is currently the only use of $DATE
 my $SUBJECT = "Job Crawler $DATE";
 
-my $CONFIG = './jc.conf.sample';
-
-# set to 1 to see more verbose, debugging output...
-my $DEBUG       = 1;
+# location of the configuration file... update as needed.
+my $CONFIG = "$ENV{HOME}/.jc.conf";
 
 ################################################################################
 ####################### END USER CONFIGURABLE SETTINGS #########################
 ################################################################################
 
+my $DEBUG = 0;
+
+my %opts = ();
+&Getopt::Std::getopts('hdc:D:e:',\%opts);
+
+if ($opts{h}) {
+    &usage();
+    exit 0;
+}
+
+$CONFIG = $opts{c} if (defined $opts{c});
 
 my $options = &read_config();
 my $terms   = $$options{terms};
 my $locales = $$options{locales};
 
+$DEBUG = 1 if ($$options{debug} == 1 or $opts{d});
+$$options{email} = $opts{e} if ($opts{e});
+$$options{depth} = $opts{D} if (defined $opts{D});
+
 &main();
 
 exit 0;
+
+sub usage {
+    print qq{usage: $0 [option]...
+searches craig's list postings for potential matches and can email
+a summary to the user to ease job hunting process.
+
+    -h              display this help message
+    -d              enable debugging
+    -c <file>       specify a configuration file
+    -D [0-5]        specify the depth to search
+    -e <email>      specify an email address to send a summary to
+
+};
+}
 
 sub main {
     # scalar to hold any error messages we come across while scanning ads.
@@ -139,10 +153,12 @@ sub read_config {
 
         if (scalar(keys %terms) == 0) {
             print STDERR "you need to define some terms to search with\n";
+            &usage();
             exit 1;
         }
         if (scalar(@locales) == 0) {
             print STDERR "you need to define a locale (or two) to search\n";
+            &usage();
             exit 1;
         }
 
@@ -151,11 +167,13 @@ sub read_config {
         close CONFIG;
     } else {
         print STDERR "unable to open config $CONFIG: $!\n";
+        &usage();
         exit 1;
     }
 
     unless ($options{section}) {
         print STDERR "you need to define a section of craig's list to search\n";
+        &usage();
         exit 1;
     }
 
