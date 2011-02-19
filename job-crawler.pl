@@ -33,12 +33,6 @@ my %TERMS = (
     'active\ directory'         =>  -2
 );
 
-# this array will allow you to step through older job postings.
-# set to something like '@depth = qw( / );' to just do the first 100
-# postings; otherwise this will analyze 600 postings (index100.html is
-# job101-job200 and so on...)
-my @DEEP = qw( / /index100.html /index200.html
-                 /index300.html /index400.html /index500.html );
 
 # get today's date in YYYY-MM-DD format (default) can be configured how you like
 # `man strftime` for formatting help...
@@ -48,45 +42,7 @@ my $DATE = `/bin/date +%F`; chomp $DATE;
 # note: this is currently the only use of $DATE
 my $SUBJECT = "Job Crawler $DATE";
 
-# time in seconds to sleep between www queries
-my $DELAY       = 2;
-
-# should we send an email summary when done?
-my $DO_EMAIL    = 0;
-
-# a file to hold the jobs the script has scanned already, as well as a counter
-# the counter is zero'd out each time the job is found. when a job reaches a
-# count defined below, the job will be removed from the history file (so you
-# don't end up with a huge file of stale job postings.
-my $HISTORY     = "/tmp/job-crawler.history";
-
-# list of all US locations available at: http://geo.craigslist.org/iso/us
-# to add more locations add the prefix to the list below, 'BLAH.craigslist.org'
-my @LOCALES     = qw( sfbay memphis );
-
-# jobs are listed under a section, for example:
-# http://sfbay.craigslist.org/sad/ for systems/networking jobs in sfbay...
-# find the section in craig's list that posts jobs you want to search...
-my $CL_SECTION  = 'sad';
-
-# the email address you want to send your job summary to
-my $EMAIL       = 'someemail@add.ress';
-
-# freshness is how many days we want to save jobs that haven't been seen in our
-# searching of craig's list. happens a lot in midwest areas with few postings...
-# turn-over is fairly quick in the bay area...
-my $FRESHNESS   = 4;
-
-# sendmail command to use to send the mail
-my $SENDMAIL    = '/usr/sbin/sendmail -t';
-
-# global variable to hold potential job URLs
-my @MATCHES     = ();  # array for desireable jobs
-
-# threshold; if a job scores higher than this value, it will be included in the
-# summary. you can set this higher or lower, depending on your level of success
-# with the keywords and values you use and assign to them.
-my $THRESHOLD   = 0;
+my $CONFIG = './jc.conf.sample';
 
 # set to 1 to see more verbose, debugging output...
 my $DEBUG       = 1;
@@ -94,6 +50,11 @@ my $DEBUG       = 1;
 ################################################################################
 ####################### END USER CONFIGURABLE SETTINGS #########################
 ################################################################################
+
+
+my $options = &read_config();
+my $terms   = $$options{terms};
+my $locales = $$options{locales};
 
 &main();
 
@@ -108,14 +69,22 @@ sub main {
     my @potential = ();
 
     # read in previously searched job listing data...
-    my $history = &read_history($HISTORY) if (-e $HISTORY);
+    my $history = &read_history($$options{history}) if (-e $$options{history});
 
-    foreach my $locale (@LOCALES) {
-        my $base = "http://$locale.craigslist.org/$CL_SECTION";
-        foreach my $depth (@DEEP) {
-            my $listing = get_page("$base$depth");
+    # this array will allow you to step through older job postings.
+    # set to something like '@depth = qw( / );' to just do the first 100
+    # postings; otherwise this will analyze 600 postings (index100.html is
+    # job101-job200 and so on...)
+    my @depths = qw( / /index100.html /index200.html
+                       /index300.html /index400.html /index500.html );
+
+    foreach my $locale (@$locales) {
+        my $base = "http://$locale.craigslist.org/$$options{section}";
+        for my $depth ( 0 .. $$options{depth} ) {
+            my $url = "$base" . "$depths[$depth]";
+            my $listing = get_page("$url");
             if (!defined $listing) {
-                my $error = "failed to get listings: $! ($base$depth)\n";
+                my $error = "failed to get listings: $! ($url)\n";
                 print STDERR $error if ($DEBUG);
                 $errors .= $error;
             } else {
@@ -134,18 +103,86 @@ sub main {
                     $$history{$url} = 1;
                 }
                 # write the history file
-                &save_history($history);
+                &save_history($$options{history},$history);
             }
         }
     }
     &present_results($errors, @potential);
 }
 
+sub read_config {
+    # function reads in the configuration file and spits out a hash reference
+    # holding all the configuration details.
+    my %options = ();
+
+    if (open CONFIG,'<',$CONFIG) {
+        my @locales = ();
+        my %terms   = ();
+        while (<CONFIG>) {
+            my $line = $_;
+            next if ($line =~ /^#/);
+            next if ($line =~ /^$/);
+
+            $line =~ s/\s+/\ /g;
+
+            my ($option,@settings) = split(/\ /,$line);
+            if ($option eq 'locale') {
+                push @locales, @settings;
+            } elsif ($option eq 'term') {
+                my $score = $settings[$#settings];
+                my $term  = join(' ',@settings[0 .. $#settings-1]);
+                $terms{"$term"} = $score;
+            } else {
+                $options{$option} = join(' ',@settings);
+            }
+        }
+
+        if (scalar(keys %terms) == 0) {
+            print STDERR "you need to define some terms to search with\n";
+            exit 1;
+        }
+        if (scalar(@locales) == 0) {
+            print STDERR "you need to define a locale (or two) to search\n";
+            exit 1;
+        }
+
+        $options{terms}     = \%terms;
+        $options{locales}   = \@locales;
+        close CONFIG;
+    } else {
+        print STDERR "unable to open config $CONFIG: $!\n";
+        exit 1;
+    }
+
+    unless ($options{section}) {
+        print STDERR "you need to define a section of craig's list to search\n";
+        exit 1;
+    }
+
+    unless ($options{email} and $options{sendmail}) {
+        if ($options{do_email}) {
+            print STDERR "no email address to send to or no sendmail defined\n";
+            print STDERR "disabling sending of mail. please fix to correct\n";
+            $options{do_email} = 0;
+        }
+    }
+    unless (defined $options{history}) {
+        print STDERR "no history file defined, using /dev/null\n";
+        $options{history} = '/dev/null';
+    }
+
+    $options{depth} = 0 unless (defined $options{depth});
+    $options{delay} = 5 unless (defined $options{delay});
+    $options{threshold} = 5 unless (defined $options{threshold});
+
+    return \%options;
+}
+
 sub read_history {
     my $HISTORY = shift;
     
     my %history = ();
-    if (open HISTORY,'<',$HISTORY ) {
+    if (open HISTORY,'<',$HISTORY) {
         while (<HISTORY>) {
             my $line = $_;
             chomp $line;
@@ -170,13 +207,13 @@ sub send_email {
 
     $job_summary =~ s/\n/<br\/>\n/g;
 
-    print "sending an email to $EMAIL\n" if ($DEBUG);
+    print "sending an email to $$options{email}\n" if ($DEBUG);
 
     my $email = qq{Subject: $SUBJECT
 X-Oddity: The ducks in the bathroom are not mine
 Content-Type: multipart/alternative; boundary="_424242_"
-To: $EMAIL
-From: $EMAIL
+To: $$options{email}
+From: $$options{email}
 
 --_424242_
 Content-Type: text/plain; charset="iso-8859-1"
@@ -198,11 +235,11 @@ $errors
 
     print $email if ($DEBUG);
 
-    if (open EMAIL,"|$SENDMAIL") {
+    if (open EMAIL,"|$$options{sendmail}") {
         print EMAIL $email;
         close EMAIL;
     } else {
-        print STDERR "cannot open $SENDMAIL: $!";
+        print STDERR "cannot open $$options{sendmail}: $!";
     }
 }
 
@@ -233,20 +270,19 @@ sub present_results {
 
     print "$jobs\n$errors\n" if ($DEBUG);
 
-    &send_email(@sorted) if ($DO_EMAIL);
+    &send_email(@sorted) if ($$options{send_email});
 }
 
 sub get_page {
     my $url = shift;
 
-    sleep $DELAY;
     my $browser = LWP::UserAgent->new;
     $browser->agent('Mozilla/5.0 (X11; U; Linux i686)');
     
     my $req = HTTP::Request->new(GET => $url);
     my $res = $browser->request($req);
     if ($res->is_success) {
-        sleep $DELAY;
+        sleep $$options{delay};
         return $res->content;
     }
     print STDERR "problem fetching $url ($!)\n" if ($DEBUG);
@@ -269,15 +305,15 @@ sub examine_post {
     my $body = get_page($url);
     return undef unless (defined $body);
 
-    foreach my $term (keys %TERMS) {
+    foreach my $term (keys %$terms) {
         my @count = $body =~ /\b$term\b/igs;
         if (scalar(@count) > 0) {
             my $find = $term . '[' . scalar(@count) . ']';
             push @found, $find;
-            $score += scalar(@count)*$TERMS{$term};
+            $score += scalar(@count)*$$terms{$term};
         }
         # additionally increase score if the term is found in the job title
-        $score += $TERMS{$term} if ($title =~ /$term/i);
+        $score += $$terms{$term} if ($title =~ /$term/i);
     }
 
     print "examined: $url score: $score\n" if ($DEBUG);
@@ -289,7 +325,7 @@ sub examine_post {
     my $summary  = "$date: [$fscore] ($area) <a href='$url'>$title</a>\n";
        $summary .= join(', ',@found) . "\n\n";
 
-    if ($score >= $THRESHOLD) {
+    if ($score >= $$options{threshold}) {
         return $summary;
     } else {
         return undef;
@@ -302,12 +338,13 @@ sub save_history {
     # for staleness a little higher than 1 or 2, we allow for a failure when
     # running the script, since the staleness is incremented each time the
     # script runs and the posting isn't seen.
+    my $HISTORY = shift;
     my $history = shift;    
 
     if (open HISTORY,'>',"$HISTORY") {
         foreach my $url (keys %$history) {
             print HISTORY join('::',$url,$$history{$url}),"\n"
-                                    unless ($$history{$url} > $FRESHNESS);
+                                unless ($$history{$url} > $$options{freshness});
         }
         close HISTORY;
     } else {

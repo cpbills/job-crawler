@@ -1,0 +1,56 @@
+# delay is the time in seconds to wait after each web query. this reduces the
+# load on craigslist's servers, is generally considered polite to wait a bit
+delay       2
+
+# depth (0 to 5) is how many posts back you want to search through.
+# you may want to set this higher if you haven't searched jobs in a while
+# or if you are searching an area with high posting rate...
+# 0 = 100 jobs, 1 = 200 jobs, ... 5 = 600 jobs
+depth       0
+
+# should we send an email summary when done?
+send_email  0
+
+# the email address you want to send your job summary to
+email       some_email@add.ress
+
+# sendmail command to use to send the mail
+sendmail    /usr/sbin/sendmail -t
+
+# a file to hold the jobs the script has scanned already, as well as a counter
+# the counter is zero'd out each time the job is found. when a job reaches a
+# count defined below, the job will be removed from the history file (so you
+# don't end up with a huge file of stale job postings.
+history     /tmp/job-crawler.history
+
+# list of all US locations available at: http://geo.craigslist.org/iso/us
+# to add more locations add the prefix to the list below, 'BLAH.craigslist.org'
+# multiple locale definitions will work, as will a white-space separated list
+locale      sfbay memphis
+locale      detroit
+
+# jobs are listed under a section, for example:
+# http://sfbay.craigslist.org/sad/ for systems/networking jobs in sfbay...
+# find the section in craig's list that posts jobs you want to search...
+section     sad
+
+# freshness is how long we want to save jobs that haven't been seen in our
+# searching of craig's list. each time a job url is seen, the counter will reset
+# to 1. every time it isn't seen, the count is increased as a determination of
+# staleness
+freshness   4
+
+# threshold; if a job scores higher than this value, it will be included in the
+# summary. you can set this higher or lower, depending on your level of success
+# with the keywords and values you use and assign to them.
+threshold   10
+
+# search terms; these are pairs of options that you set the term you are looking
+# for and the score you wish to assign to such a keyword. these will be fed
+# directly into a regular expression, so if you run into problems, you may need
+# to escape funky characters by adding a '\' in front, e.g. c\+\+
+term        windows              -6
+term        linux                 5
+term        perl                  8
+term        active directory    -10
+term        unix                  4
