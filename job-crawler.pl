@@ -198,13 +198,13 @@ sub read_config {
 
 sub read_history {
     my $HISTORY = shift;
-    
+
     my %history = ();
     if (open HISTORY,'<',$HISTORY) {
         while (<HISTORY>) {
             my $line = $_;
             chomp $line;
-            my ($url,$stale) = split(/::/,$line); 
+            my ($url,$stale) = split(/::/,$line);
             # increase the staleness; this allows us to keep job posting history
             # fresh and not retain job postings that are no longer around but at
             # the same time allows us to keep from searching the same postings
@@ -281,7 +281,7 @@ sub present_results {
         return 0;
     } @potential;
 
-    my $jobs = ''; 
+    my $jobs = '';
     foreach my $joblisting (@sorted) {
         $jobs .= $joblisting;
     }
@@ -296,7 +296,7 @@ sub get_page {
 
     my $browser = LWP::UserAgent->new;
     $browser->agent('Mozilla/5.0 (X11; U; Linux i686)');
-    
+
     my $req = HTTP::Request->new(GET => $url);
     my $res = $browser->request($req);
     if ($res->is_success) {
@@ -357,7 +357,7 @@ sub save_history {
     # running the script, since the staleness is incremented each time the
     # script runs and the posting isn't seen.
     my $HISTORY = shift;
-    my $history = shift;    
+    my $history = shift;
 
     if (open HISTORY,'>',"$HISTORY") {
         foreach my $url (keys %$history) {
