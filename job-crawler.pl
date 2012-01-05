@@ -39,16 +39,16 @@ my $CONFIG = "$ENV{HOME}/.jc.conf";
 my $DEBUG = 0;
 
 my %opts = ();
-&Getopt::Std::getopts('hdc:D:e:',\%opts);
+Getopt::Std::getopts('hdc:D:e:',\%opts);
 
 if ($opts{h}) {
-    &usage();
+    usage();
     exit 0;
 }
 
 $CONFIG = $opts{c} if (defined $opts{c});
 
-my $options = &read_config();
+my $options = read_config();
 my $terms   = $$options{terms};
 my $locales = $$options{locales};
 
@@ -56,7 +56,7 @@ $DEBUG = 1 if ($$options{debug} or $opts{d});
 $$options{email} = $opts{e} if ($opts{e});
 $$options{depth} = $opts{D} if (defined $opts{D});
 
-&main();
+main();
 
 exit 0;
 
@@ -83,7 +83,7 @@ sub main {
     my @potential = ();
 
     # read in previously searched job listing data...
-    my $history = &read_history($$options{history}) if (-e $$options{history});
+    my $history = read_history($$options{history}) if (-e $$options{history});
 
     # this array will allow you to step through older job postings.
     # set to something like '@depth = qw( / );' to just do the first 100
@@ -107,7 +107,7 @@ sub main {
                 foreach my $post (@posts) {
                     my ($url,$title,$area) =
                                 $post =~ /(.*.html).*>(.*?)<\/a>.*\(([^)]*)/i;
-                    my $result = &examine_post($url,$title,$area,$history);
+                    my $result = examine_post($url,$title,$area,$history);
                     if ($result) {
                         push @potential, $result;
                     }
@@ -117,11 +117,11 @@ sub main {
                     $$history{$url} = 1;
                 }
                 # write the history file
-                &save_history($$options{history},$history);
+                save_history($$options{history},$history);
             }
         }
     }
-    &present_results($errors, @potential);
+    present_results($errors, @potential);
 }
 
 sub read_config {
@@ -153,12 +153,12 @@ sub read_config {
 
         if (scalar(keys %terms) == 0) {
             print STDERR "you need to define some terms to search with\n";
-            &usage();
+            usage();
             exit 1;
         }
         if (scalar(@locales) == 0) {
             print STDERR "you need to define a locale (or two) to search\n";
-            &usage();
+            usage();
             exit 1;
         }
 
@@ -167,13 +167,13 @@ sub read_config {
         close CONFIG;
     } else {
         print STDERR "unable to open config $CONFIG: $!\n";
-        &usage();
+        usage();
         exit 1;
     }
 
     unless ($options{section}) {
         print STDERR "you need to define a section of craig's list to search\n";
-        &usage();
+        usage();
         exit 1;
     }
 
@@ -288,7 +288,7 @@ sub present_results {
 
     print "$jobs\n$errors\n" if ($DEBUG);
 
-    &send_email(@sorted) if ($$options{send_email});
+    send_email(@sorted) if ($$options{send_email});
 }
 
 sub get_page {
