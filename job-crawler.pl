@@ -29,8 +29,20 @@ my $DATE = `/bin/date +%F`; chomp $DATE;
 # note: this is currently the only use of $DATE
 my $SUBJECT = "Job Crawler $DATE";
 
-# location of the configuration file... update as needed.
-my $CONFIG = "$ENV{HOME}/.jc.conf";
+my $config_name = 'job-crawler.conf';
+my @config_path = ();
+if ($^O =~ /mswin/i) {
+    @config_path = ("./${config_name}");
+} else {
+    @config_path = ( "/etc/${config_name}",
+                     "$ENV{HOME}/.${config_name}",
+                     "$ENV{HOME}/.config/${config_name}",
+                     "./${config_name}" );
+}
+my $options_file = '';
+foreach my $config (@config_path) {
+    $options_file = $config if (-e "$config" && -r "$config");
+}
 
 ################################################################################
 ####################### END USER CONFIGURABLE SETTINGS #########################
@@ -46,9 +58,9 @@ if ($opts{h}) {
     exit 0;
 }
 
-$CONFIG = $opts{c} if (defined $opts{c});
+$options_file = $cli_opts{c} if ($cli_opts{c});
+my $options = read_options("$options_file");
 
-my $options = read_config();
 my $terms   = $$options{terms};
 my $locales = $$options{locales};
 
@@ -122,6 +134,31 @@ sub main {
         }
     }
     present_results($errors, @potential);
+}
+
+sub read_options {
+    my $config  = shift;
+
+    my %options = ();
+    if (open FILE,'<',$config) {
+        while (<FILE>) {
+            my $line = $_;
+            $line =~ s/^\s+//;
+            $line =~ s/\s+$//;
+            next if ($line =~ /^#/);
+            next if ($line =~ /^$/);
+
+            my ($option,$value) = split(/\s+/,$line,2);
+            if ($options{$option}) {
+                print "WARN: option $option previously defined in config\n";
+            }
+            $options{$option} = $value;
+        }
+        close FILE;
+    } else {
+        print STDERR "could not open file: $config: $!\n";
+    }
+    return \%options;
 }
 
 sub read_config {
