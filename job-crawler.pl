@@ -306,39 +306,48 @@ sub get_page {
     return undef;
 }
 
-sub examine_post {
+sub examine_posting {
+    # Scan a Craig's List posting for configured search terms
+    # Returns text if the posting meets a threshold requirement, else undef
     my $url     = shift;
-    my $title   = shift;
-    my $area    = shift;
-    my $history = shift;
-
-    return undef if ($$history{$url});
 
     my $score   = 0;
 
-    # initialize array to hold terms found in job posting...
+    # Terms found in job posting
     my @found = ();
 
-    my $body = get_page($url);
+    my $title   = '';
+    my $area    = '???';
+    my $date    = '????-??-??';
+    my $body    = get_page($url);
     return undef unless (defined $body);
+
+    ($date) = $body =~ /Posted:\s+\<date\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi;
+    ($title) = $body =~ /postingTitle = "([^"]*)/gi;
+
+    if ($title =~ /\(([^)]+)\)$/) {
+        $area = $1;
+        $title =~ s/\s+\($area\)//;
+    }
+
+    $body =~ s/^.*\<section id=\"postingbody\"\>//gis;
+    $body =~ s/\<\/section\>.*//gis;
 
     foreach my $term (keys %$terms) {
         my @count = $body =~ /\b$term\b/igs;
         if (scalar(@count) > 0) {
-            my $find = $term . '[' . scalar(@count) . ']';
-            push @found, $find;
+            my $term_count = $term . '[' . scalar(@count) . ']';
+            push @found, $term_count;
             $score += scalar(@count)*$$terms{$term};
         }
-        # additionally increase score if the term is found in the job title
+        # Bonus score if the term is found in the job title
         $score += $$terms{$term} if ($title =~ /$term/i);
     }
 
     print "examined: $url score: $score\n" if ($DEBUG);
 
-    my $date  = '';
-      ($date) = $body =~ /Date:\s+([0-9]{4}-[0-9]{2}-[0-9]{2})/is;
     my $fscore = sprintf("% 3i",$score);
-    # create a summary of the job posting;
+    # Create a summary of the job posting;
     my $summary  = "$date: [$fscore] ($area) <a href='$url'>$title</a>\n";
        $summary .= join(', ',@found) . "\n\n";
 
