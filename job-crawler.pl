@@ -20,39 +20,30 @@ use strict;
 
 use LWP::UserAgent;
 use Getopt::Std;
-
-# get today's date in YYYY-MM-DD format (default) can be configured how you like
-# `man strftime` for formatting help...
-my $DATE = `/bin/date +%F`; chomp $DATE;
-
-# configure the subject for sent emails.
-# note: this is currently the only use of $DATE
-my $SUBJECT = "Job Crawler $DATE";
-
-# location of the configuration file... update as needed.
-my $CONFIG = "$ENV{HOME}/.jc.conf";
-
-################################################################################
-####################### END USER CONFIGURABLE SETTINGS #########################
-################################################################################
-
-my $DEBUG = 0;
+use POSIX qw(strftime);
 
 my %opts = ();
-Getopt::Std::getopts('hdc:D:e:',\%opts);
+Getopt::Std::getopts('hvc:d:e:',\%opts);
 
 if ($opts{h}) {
     usage();
     exit 0;
 }
 
-$CONFIG = $opts{c} if (defined $opts{c});
+# Default configuration file; override with -c
+my $config = "$ENV{HOME}/.config/job-crawler.conf";
+   $config = $opts{c} if (defined $opts{c});
+my $options = read_config($config);
 
-my $options = read_config();
+# The email subject-line; 'Job Crawler YYYY-MM-DD' by default.
+my $subject = "Job Crawler " . strftime("%F",localtime);
+
+my $VERBOSE = 0;
+
 my $terms   = $$options{terms};
 my $locales = $$options{locales};
 
-$DEBUG = 1 if ($$options{debug} or $opts{d});
+$VERBOSE = 1 if ($$options{verbose} or $opts{v});
 $$options{email} = $opts{e} if ($opts{e});
 $$options{depth} = $opts{D} if (defined $opts{D});
 
@@ -302,7 +293,7 @@ sub get_page {
         sleep $$options{delay};
         return $res->content;
     }
-    print STDERR "problem fetching $url ($!)\n" if ($DEBUG);
+    print STDERR "problem fetching $url ($!)\n" if ($VERBOSE);
     return undef;
 }
 
@@ -344,7 +335,7 @@ sub examine_posting {
         $score += $$terms{$term} if ($title =~ /$term/i);
     }
 
-    print "examined: $url score: $score\n" if ($DEBUG);
+    print "examined: $url score: $score\n" if ($VERBOSE);
 
     my $fscore = sprintf("% 3i",$score);
     # Create a summary of the job posting;
