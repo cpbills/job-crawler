@@ -251,44 +251,43 @@ $results
 --_424242_--
 };
 
-    print $email if ($DEBUG);
+    print $email_content if ($VERBOSE);
 
-    if (open EMAIL,"|$$options{sendmail}") {
-        print EMAIL $email;
+    if (open EMAIL,'|-',"$sendmail") {
+        print EMAIL $email_content;
         close EMAIL;
     } else {
-        print STDERR "cannot open $$options{sendmail}: $!";
+        print STDERR "Cannot open $sendmail: $!";
     }
 }
 
-sub present_results {
+sub create_results {
     my $errors      = shift;
-    my @potential   = @_;
+    my @matches     = @_;
 
-    return unless (scalar(@potential) > 0);
+    # Return if there are no matches
+    return undef unless (scalar(@matches) > 0);
 
+    # Sort matches by score
     my @sorted = sort {
-        # originally set to sort by date, then score, that ended up
-        # more frustrating than not.
-        my ($da,$sa) = $a =~ /([0-9-]*):.*\[\s+([0-9]+)/;
-        my ($db,$sb) = $b =~ /([0-9-]*):.*\[\s+([0-9]+)/;
-        #return -1 if ($da gt $db);
-        #return  1 if ($db gt $da);
-        #if ($da eq $db) {
-            return -1 if ($sa > $sb);
-            return  1 if ($sb > $sa);
-        #}
+        # Items in @matches are formatted as:
+        # DATE: [SCORE] (AREA) <a href='URL'>TITLE</a>\n
+        my ($date_a,$score_a) = $a =~ /([0-9-]*):.*\[\s+([0-9]+)/;
+        my ($date_b,$score_b) = $b =~ /([0-9-]*):.*\[\s+([0-9]+)/;
+        return -1 if ($score_a > $score_b);
+        return  1 if ($score_b > $score_a);
         return 0;
-    } @potential;
+    } @matches;
 
-    my $jobs = '';
-    foreach my $joblisting (@sorted) {
-        $jobs .= $joblisting;
+    my $results = '';
+    foreach my $posting (@sorted) {
+        $results .= $posting;
     }
 
-    print "$jobs\n$errors\n" if ($DEBUG);
+    $results = "$results\n$errors\n";
+    print "$results" if ($VERBOSE);
 
-    send_email(@sorted) if ($$options{send_email});
+    return $results;
 }
 
 sub get_page {
