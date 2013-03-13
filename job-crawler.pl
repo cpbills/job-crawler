@@ -199,22 +199,20 @@ sub read_config {
 }
 
 sub read_history {
-    my $HISTORY = shift;
+    my $hist_file = shift;
 
     my %history = ();
-    if (open HISTORY,'<',$HISTORY) {
+    if (open HISTORY,'<',$hist_file) {
         while (<HISTORY>) {
             my $line = $_;
             chomp $line;
-            my ($url,$stale) = split(/::/,$line);
-            # increase the staleness; this allows us to keep job posting history
-            # fresh and not retain job postings that are no longer around but at
-            # the same time allows us to keep from searching the same postings
-            $history{$url} = ++$stale;
+            my ($url,$age) = split(/::/,$line);
+            # Increase the posting age to track which postings are gone
+            $history{$url} = ++$age;
         }
         close HISTORY;
     } else {
-        print STDERR "failed to open $HISTORY; $!\n" if ($DEBUG);
+        print STDERR "Failed to open $hist_file; $!\n";
     }
 
     # return a hash reference (for easier passing between functions...)
