@@ -45,9 +45,52 @@ my $locales = $$options{locales};
 
 $VERBOSE = 1 if ($$options{verbose} or $opts{v});
 $$options{email} = $opts{e} if ($opts{e});
-$$options{depth} = $opts{D} if (defined $opts{D});
+$$options{depth} = $opts{d} if (defined $opts{d});
 
-main();
+# Track errors encountered while processing job postings
+my $errors = '';
+
+my @matches = ();
+
+# read in previously searched job listing data...
+my $history = read_history($$options{history}) if (-e "$$options{history}");
+
+# Craig's List has 'static' URLs for 1-100 jobs, 101-200 and so on.
+my @depths = qw( / /index100.html /index200.html
+                   /index300.html /index400.html /index500.html );
+
+foreach my $locale (@$locales) {
+    my $base = "http://$locale.craigslist.org/$$options{section}";
+    for my $depth ( 0 .. $$options{depth} ) {
+        my $url = "$base" . "$depths[$depth]";
+        my $postings = get_page("$url");
+        if ($postings) {
+            # Scrape HTML for post URLs and descriptions
+            my @posting_urls = ($postings =~ /(http.*[0-9]+\.html)"/gim);
+            foreach my $url (@posting_urls) {
+                unless ($$history{$url}) {
+                    my $result = examine_posting($url);
+                    if ($result) {
+                        push @matches, $result;
+                    }
+                }
+                # Set the 'age' to 1
+                $$history{$url} = 1;
+            }
+            # write the history file
+            save_history($$options{history},$history,$$options{freshness});
+        } else {
+            my $error = "failed to get listings: $! ($url)\n";
+            print STDERR $error if ($VERBOSE);
+            $errors .= $error;
+        }
+    }
+}
+my $results = create_results($errors,@matches);
+
+if ($$options{send_email}) {
+    send_email($$options{email},$subject,$results,$$options{sendmail});
+}
 
 exit 0;
 
@@ -57,62 +100,12 @@ searches craig's list postings for potential matches and can email
 a summary to the user to ease job hunting process.
 
     -h              display this help message
-    -d              enable debugging
+    -v              verbose output
     -c <file>       specify a configuration file
-    -D [0-5]        specify the depth to search
+    -d [0-5]        specify the depth to search
     -e <email>      specify an email address to send a summary to
 
 };
-}
-
-sub main {
-    # scalar to hold any error messages we come across while scanning ads.
-    # will be included as a footer of the email summary...
-    my $errors = '';
-
-    # array to hold summaries of potential job matches...
-    my @potential = ();
-
-    # read in previously searched job listing data...
-    my $history = read_history($$options{history}) if (-e $$options{history});
-
-    # this array will allow you to step through older job postings.
-    # set to something like '@depth = qw( / );' to just do the first 100
-    # postings; otherwise this will analyze 600 postings (index100.html is
-    # job101-job200 and so on...)
-    my @depths = qw( / /index100.html /index200.html
-                       /index300.html /index400.html /index500.html );
-
-    foreach my $locale (@$locales) {
-        my $base = "http://$locale.craigslist.org/$$options{section}";
-        for my $depth ( 0 .. $$options{depth} ) {
-            my $url = "$base" . "$depths[$depth]";
-            my $listing = get_page("$url");
-            if (!defined $listing) {
-                my $error = "failed to get listings: $! ($url)\n";
-                print STDERR $error if ($DEBUG);
-                $errors .= $error;
-            } else {
-                # skim the HTML listings for post URLs and descriptions
-                my @posts = $listing =~ /^<p>.*(http.*font\ size.*)<\/p>$/gim;
-                foreach my $post (@posts) {
-                    my ($url,$title,$area) =
-                                $post =~ /(.*.html).*>(.*?)<\/a>.*\(([^)]*)/i;
-                    my $result = examine_post($url,$title,$area,$history);
-                    if ($result) {
-                        push @potential, $result;
-                    }
-                    # (re)set 'seen' count to 1; a low value means it is still
-                    # being listed on craig's list, and we still have to keep
-                    # track of it, to avoid double-analyzing a job listing.
-                    $$history{$url} = 1;
-                }
-                # write the history file
-                save_history($$options{history},$history,$$options{freshness});
-            }
-        }
-    }
-    present_results($errors, @potential);
 }
 
 sub read_config {
