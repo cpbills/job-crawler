@@ -117,7 +117,7 @@ sub main {
                     $$history{$url} = 1;
                 }
                 # write the history file
-                save_history($$options{history},$history);
+                save_history($$options{history},$history,$$options{freshness});
             }
         }
     }
@@ -351,21 +351,23 @@ sub examine_post {
 }
 
 sub save_history {
-    # write posting information we have already seen out to a file.
-    # skip writing the post details if it isn't 'fresh'. by setting the check
-    # for staleness a little higher than 1 or 2, we allow for a failure when
-    # running the script, since the staleness is incremented each time the
-    # script runs and the posting isn't seen.
-    my $HISTORY = shift;
-    my $history = shift;
+    # Keep track of 'fresh' jobs that have been scanned already.
+    # If a posting hasn't been seen in a set number of program runs,
+    # it is no longer tracked. This keeps the history file from growing
+    # too large and tracking irellevant data.
+    my $hist_file   = shift;
+    my $postings    = shift;
+    my $freshness   = shift;
 
-    if (open HISTORY,'>',"$HISTORY") {
-        foreach my $url (keys %$history) {
-            print HISTORY join('::',$url,$$history{$url}),"\n"
-                                unless ($$history{$url} > $$options{freshness});
+    if (open HISTORY,'>',"$hist_file") {
+        foreach my $url (keys %$postings) {
+            if ($freshness > $$postings{$url}) {
+                print HISTORY join('::',$url,$$postings{$url}),"\n";
+            }
         }
         close HISTORY;
     } else {
-        print STDERR "unable to open $HISTORY for writing; $!\n" if ($DEBUG);
+        # Be noisy about our inability to track things.
+        print STDERR "unable to open $hist_file for writing; $!\n";
     }
 }
