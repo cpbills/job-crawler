@@ -178,10 +178,10 @@ sub read_config {
     }
 
     unless ($options{email} and $options{sendmail}) {
-        if ($options{do_email}) {
+        if ($options{send_email}) {
             print STDERR "no email address to send to or no sendmail defined\n";
             print STDERR "disabling sending of mail. please fix to correct\n";
-            $options{do_email} = 0;
+            $options{send_email} = 0;
         }
     }
     unless (defined $options{history}) {
@@ -220,30 +220,30 @@ sub read_history {
 }
 
 sub send_email {
-    my $errors      = shift;
-    my $job_summary = shift;
+    my $email_addr  = shift;
+    my $subject     = shift;
+    my $results     = shift;
+    my $sendmail    = shift;
 
-    $job_summary =~ s/\n/<br\/>\n/g;
+    $results =~ s/\n/<br\/>\n/g;
 
-    print "sending an email to $$options{email}\n" if ($DEBUG);
+    print "sending an email to $$options{email}\n" if ($VERBOSE);
 
-    my $email = qq{Subject: $SUBJECT
+    my $email_content = qq{Subject: $subject
 X-Oddity: The ducks in the bathroom are not mine
 Content-Type: multipart/alternative; boundary="_424242_"
-To: $$options{email}
-From: $$options{email}
+To: $email_addr
+From: $email_addr
 
 --_424242_
 Content-Type: text/plain; charset="iso-8859-1"
-$job_summary
-$errors
+$results
 --_424242_
 Content-Type: text/html; charset="iso-8859-1"
 <html>
     <body style="font-family:'Courier New',monospace;">
     <p style="font-family:'Courier New',Courier,monospace;">
-$job_summary
-$errors
+$results
     </p>
     </body>
 </html>
