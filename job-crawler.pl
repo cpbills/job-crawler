@@ -125,11 +125,13 @@ sub main {
 }
 
 sub read_config {
-    # function reads in the configuration file and spits out a hash reference
-    # holding all the configuration details.
+    # Attempts to open and read a configuration file.
+    # Returns a hash-reference containing configuration details
+    my $conf_file   = shift;
+
     my %options = ();
 
-    if (open CONFIG,'<',$CONFIG) {
+    if (open CONFIG,'<',$conf_file) {
         my @locales = ();
         my %terms   = ();
         while (<CONFIG>) {
@@ -152,12 +154,12 @@ sub read_config {
         }
 
         if (scalar(keys %terms) == 0) {
-            print STDERR "you need to define some terms to search with\n";
+            print STDERR "No Terms: Please define search terms to use\n";
             usage();
             exit 1;
         }
         if (scalar(@locales) == 0) {
-            print STDERR "you need to define a locale (or two) to search\n";
+            print STDERR "No Locales: Please select a locale to search\n";
             usage();
             exit 1;
         }
@@ -166,7 +168,7 @@ sub read_config {
         $options{locales}   = \@locales;
         close CONFIG;
     } else {
-        print STDERR "unable to open config $CONFIG: $!\n";
+        print STDERR "Unable to open $conf_file: $!\n";
         usage();
         exit 1;
     }
