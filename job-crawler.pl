@@ -22,6 +22,27 @@ use LWP::UserAgent;
 use Getopt::Std;
 use POSIX qw(strftime);
 
+my $VERBOSE = 0;
+
+# Email subject; 'Job Crawler YYYY-MM-DD' by default.
+my $subject = "Job Crawler " . strftime("%F",localtime);
+
+# Default configuration locations; override with -c
+my $config_name = 'job-crawler.conf';
+my @config_path = ();
+if ($^O =~ /mswin/i) {
+    @config_path = ("./${config_name}");
+} else {
+    @config_path = ( "/etc/${config_name}",
+                     "$ENV{HOME}/.${config_name}",
+                     "$ENV{HOME}/.config/${config_name}",
+                     "./${config_name}" );
+}
+my $config_file = '';
+foreach my $config (@config_path) {
+    $config_file = $config if (-e "$config" && -r "$config");
+}
+
 my %opts = ();
 Getopt::Std::getopts('hvc:d:e:',\%opts);
 
@@ -30,22 +51,22 @@ if ($opts{h}) {
     exit 0;
 }
 
-# Default configuration file; override with -c
-my $config = "$ENV{HOME}/.config/job-crawler.conf";
-   $config = $opts{c} if (defined $opts{c});
-my $options = read_config($config);
+$config_file = $opts{c} if (defined $opts{c});
 
-# The email subject-line; 'Job Crawler YYYY-MM-DD' by default.
-my $subject = "Job Crawler " . strftime("%F",localtime);
-
-my $VERBOSE = 0;
-
-my $terms   = $$options{terms};
-my $locales = $$options{locales};
-
+my $options = read_config($config_file);
 $VERBOSE = 1 if ($$options{verbose} or $opts{v});
-$$options{email} = $opts{e} if ($opts{e});
+$$options{email} = $opts{e} if (defined $opts{e});
 $$options{depth} = $opts{d} if (defined $opts{d});
+
+if ($VERBOSE) {
+    print "Using $config_file for configuration\n";
+}
+
+unless (verify_options($options)) {
+    # exit if the options are broke
+    err_msg('Required options not defined',1);
+}
+
 
 # Track errors encountered while processing job postings
 my $errors = '';
@@ -53,13 +74,16 @@ my $errors = '';
 my @matches = ();
 
 # read in previously searched job listing data...
-my $history = read_history($$options{history}) if (-e "$$options{history}");
+my $history = {};
+if ($$options{history} && -e "$$options{history}") {
+    $history = read_history($$options{history});
+}
 
 # Craig's List has 'static' URLs for 1-100 jobs, 101-200 and so on.
 my @depths = qw( / /index100.html /index200.html
                    /index300.html /index400.html /index500.html );
 
-foreach my $locale (@$locales) {
+foreach my $locale (split(/\s+/,$$options{locale})) {
     my $base = "http://$locale.craigslist.org/$$options{section}";
     for my $depth ( 0 .. $$options{depth} ) {
         my $url = "$base" . "$depths[$depth]";
@@ -69,7 +93,7 @@ foreach my $locale (@$locales) {
             my @posting_urls = ($postings =~ /(http.*[0-9]+\.html)"/gim);
             foreach my $url (@posting_urls) {
                 unless ($$history{$url}) {
-                    my $result = examine_posting($url);
+                    my $result = examine_posting($url,$$options{terms});
                     if ($result) {
                         push @matches, $result;
                     }
@@ -77,12 +101,16 @@ foreach my $locale (@$locales) {
                 # Set the 'age' to 1
                 $$history{$url} = 1;
             }
-            # write the history file
-            save_history($$options{history},$history,$$options{freshness});
+            if ($$options{history}) {
+                # save URL history
+                save_history($$options{history},$history,$$options{freshness});
+            }
         } else {
-            my $error = "failed to get listings: $! ($url)\n";
-            print STDERR $error if ($VERBOSE);
-            $errors .= $error;
+            my $error = "failed to get listings: $! ($url)";
+            if ($VERBOSE) {
+                err_msg($error,0);
+            }
+            $errors .= "$error\n";
         }
     }
 }
@@ -115,64 +143,51 @@ sub read_config {
 
     my %options = ();
 
-    if (open CONFIG,'<',$conf_file) {
-        my @locales = ();
+    if (open CONFIG,'<',"$conf_file") {
+        # hash for the score of each search term
         my %terms   = ();
+
         while (<CONFIG>) {
             my $line = $_;
+
+            # remove pesking whitespace
+            $line =~ s/^\s+//;
+            $line =~ s/\s+$//;
+
+            # skip comments and empty lines
             next if ($line =~ /^#/);
             next if ($line =~ /^$/);
 
+            # squish whitespace
             $line =~ s/\s+/\ /g;
 
-            my ($option,@settings) = split(/\ /,$line);
-            if ($option eq 'locale') {
-                push @locales, @settings;
-            } elsif ($option eq 'term') {
-                my $score = $settings[$#settings];
-                my $term  = join(' ',@settings[0 .. $#settings-1]);
-                $terms{"$term"} = $score;
+            my ($option,$value) = split(/\ /,$line,2);
+            if ($options{$option}) {
+                # check for 'overloadable' options
+                if ($option eq 'locale') {
+                    $options{$option} = join(' ',$options{$option},$value);
+                } elsif ($option eq 'term') {
+                    # Special handing for 'terms' data
+                    # grab the score from the end of $line and leave 'term'
+                    $value =~ s/\ ([-0-9]+)$//;
+                    $terms{"$value"} = $1;
+                } else {
+                    err_msg("Option $option previously defined",0);
+                }
             } else {
-                $options{$option} = join(' ',@settings);
+                $options{$option} = $value;
             }
         }
-
-        if (scalar(keys %terms) == 0) {
-            print STDERR "No Terms: Please define search terms to use\n";
-            usage();
-            exit 1;
-        }
-        if (scalar(@locales) == 0) {
-            print STDERR "No Locales: Please select a locale to search\n";
-            usage();
-            exit 1;
-        }
-
-        $options{terms}     = \%terms;
-        $options{locales}   = \@locales;
         close CONFIG;
-    } else {
-        print STDERR "Unable to open $conf_file: $!\n";
-        usage();
-        exit 1;
-    }
 
-    unless ($options{section}) {
-        print STDERR "you need to define a section of craig's list to search\n";
-        usage();
-        exit 1;
-    }
-
-    unless ($options{email} and $options{sendmail}) {
-        if ($options{send_email}) {
-            print STDERR "no email address to send to or no sendmail defined\n";
-            print STDERR "disabling sending of mail. please fix to correct\n";
-            $options{send_email} = 0;
+        # Special handling for the 'terms' data
+        if (scalar(keys %terms)) {
+            $options{terms} = \%terms;
+        } else {
+            $options{terms} = 0;
         }
-    }
-    unless (defined $options{history}) {
-        print STDERR "no history file defined, using /dev/null\n";
-        $options{history} = '/dev/null';
+    } else {
+        err_msg("Unable to open $conf_file: $!",1);
     }
 
     $options{depth} = 0 unless (defined $options{depth});
@@ -181,6 +196,66 @@ sub read_config {
 
     return \%options;
 }
+
+sub err_msg {
+    # Function to 'standardize' error output
+    my $message = shift;
+    # 0 is non-fatal, non-zero exits with that value
+    my $err_lvl = shift;
+
+    print STDERR "$message\n";
+    if ($err_lvl) {
+        usage();
+        exit $err_lvl;
+    }
+}
+
+sub verify_options {
+    # Check that required options are set, as expected.
+    my $options = shift;
+
+    my $success = 1;
+
+    if ($$options{terms} == 0) {
+        $success = 0;
+        err_msg('No search terms have been defined.',0);
+    }
+
+    if (scalar(split(/\s+/,$$options{locale})) == 0) {
+        $success = 0;
+        err_msg('No search locales have been defined.',0);
+    }
+
+    unless ($$options{section}) {
+        $success = 0;
+        err_msg('No section to search defined.',0);
+    }
+
+    if ($$options{send_email}) {
+        unless ($$options{email}) {
+            $$options{send_email} = 0;
+            err_msg('No email address defined, not sending mail.',0);
+        }
+        if ($$options{sendmail}) {
+            my ($bin) = split(/\s*/,$$options{sendmail});
+            unless (-e "$bin" && -x "$bin") {
+                $$options{send_email} = 0;
+                err_msg("Sendmail binary ($bin) not found, not sending mail",0);
+            }
+        } else {
+            $$options{send_email} = 0;
+            err_msg('Path to sendmail not defined, not sending mail.',0);
+        }
+    }
+
+    unless ($$options{history}) {
+        $$options{history} = 0;
+        err_msg('No history file defined, not using URL history.',0);
+    }
+
+    return $success;
+}
+
 
 sub read_history {
     my $hist_file = shift;
@@ -196,7 +271,7 @@ sub read_history {
         }
         close HISTORY;
     } else {
-        print STDERR "Failed to open $hist_file; $!\n";
+        err_msg("Failed to open $hist_file; $!",0);
     }
 
     # return a hash reference (for easier passing between functions...)
@@ -241,7 +316,7 @@ $results
         print EMAIL $email_content;
         close EMAIL;
     } else {
-        print STDERR "Cannot open $sendmail: $!";
+        err_msg("Cannot open $sendmail: $!",0);
     }
 }
 
@@ -286,7 +361,9 @@ sub get_page {
         sleep $$options{delay};
         return $res->content;
     }
-    print STDERR "problem fetching $url ($!)\n" if ($VERBOSE);
+    if ($VERBOSE) {
+        err_msg("problem fetching $url ($!)",0);
+    }
     return undef;
 }
 
@@ -294,6 +371,7 @@ sub examine_posting {
     # Scan a Craig's List posting for configured search terms
     # Returns text if the posting meets a threshold requirement, else undef
     my $url     = shift;
+    my $terms   = shift;
 
     my $score   = 0;
 
@@ -360,6 +438,6 @@ sub save_history {
         close HISTORY;
     } else {
         # Be noisy about our inability to track things.
-        print STDERR "unable to open $hist_file for writing; $!\n";
+        err_msg("unable to open $hist_file for writing; $!",0);
     }
 }
