@@ -116,7 +116,7 @@ foreach my $locale (split(/\s+/,$$options{locale})) {
 }
 my $results = create_results($errors,@matches);
 
-if ($$options{send_email}) {
+if ($results && $$options{send_email}) {
     send_email($$options{email},$subject,$results,$$options{sendmail});
 }
 
@@ -286,8 +286,6 @@ sub send_email {
 
     $results =~ s/\n/<br\/>\n/g;
 
-    print "sending an email to $$options{email}\n" if ($VERBOSE);
-
     my $email_content = qq{Subject: $subject
 X-Oddity: The ducks in the bathroom are not mine
 Content-Type: multipart/alternative; boundary="_424242_"
@@ -309,8 +307,10 @@ $results
 
 --_424242_--
 };
-
-    print $email_content if ($VERBOSE);
+    if ($VERBOSE) {
+        print "sending an email to $email_addr\n";
+        print $email_content;
+    }
 
     if (open EMAIL,'|-',"$sendmail") {
         print EMAIL $email_content;
@@ -344,7 +344,9 @@ sub create_results {
     }
 
     $results = "$results\n$errors\n";
-    print "$results" if ($VERBOSE);
+    if ($VERBOSE) {
+        print "$results";
+    }
 
     return $results;
 }
