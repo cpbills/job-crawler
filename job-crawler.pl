@@ -143,11 +143,11 @@ sub read_config {
 
     my %options = ();
 
-    if (open CONFIG,'<',"$conf_file") {
+    if (open my $conf_fh,'<',"$conf_file") {
         # hash for the score of each search term
         my %terms   = ();
 
-        while (<CONFIG>) {
+        while (<$conf_fh>) {
             my $line = $_;
 
             # remove pesking whitespace
@@ -178,7 +178,7 @@ sub read_config {
                 $options{$option} = $value;
             }
         }
-        close CONFIG;
+        close $conf_fh;
 
         # Special handling for the 'terms' data
         if (scalar(keys %terms)) {
@@ -261,15 +261,15 @@ sub read_history {
     my $hist_file = shift;
 
     my %history = ();
-    if (open HISTORY,'<',$hist_file) {
-        while (<HISTORY>) {
+    if (open my $hist_fh,'<',$hist_file) {
+        while (<$hist_fh>) {
             my $line = $_;
             chomp $line;
             my ($url,$age) = split(/::/,$line);
             # Increase the posting age to track which postings are gone
             $history{$url} = ++$age;
         }
-        close HISTORY;
+        close $hist_fh;
     } else {
         err_msg("Failed to open $hist_file; $!",0);
     }
@@ -312,9 +312,9 @@ $results
         print $email_content;
     }
 
-    if (open EMAIL,'|-',"$sendmail") {
-        print EMAIL $email_content;
-        close EMAIL;
+    if (open my $email_pipe,'|-',"$sendmail") {
+        print $email_pipe $email_content;
+        close $email_pipe;
     } else {
         err_msg("Cannot open $sendmail: $!",0);
     }
@@ -325,7 +325,7 @@ sub create_results {
     my @matches     = @_;
 
     # Return if there are no matches
-    return undef unless (scalar(@matches) > 0);
+    return unless (scalar(@matches) > 0);
 
     # Sort matches by score
     my @sorted = sort {
@@ -366,12 +366,12 @@ sub get_page {
     if ($VERBOSE) {
         err_msg("problem fetching $url ($!)",0);
     }
-    return undef;
+    return;
 }
 
 sub examine_posting {
     # Scan a Craig's List posting for configured search terms
-    # Returns text if the posting meets a threshold requirement, else undef
+    # Returns text if the posting meets a threshold requirement
     my $url     = shift;
     my $terms   = shift;
 
@@ -384,7 +384,7 @@ sub examine_posting {
     my $area    = '???';
     my $date    = '????-??-??';
     my $body    = get_page($url);
-    return undef unless (defined $body);
+    return unless (defined $body);
 
     ($date) = $body =~ /Posted:\s+\<date\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi;
     ($title) = $body =~ /postingTitle = "([^"]*)/gi;
@@ -418,7 +418,7 @@ sub examine_posting {
     if ($score >= $$options{threshold}) {
         return $summary;
     } else {
-        return undef;
+        return;
     }
 }
 
@@ -431,13 +431,13 @@ sub save_history {
     my $postings    = shift;
     my $freshness   = shift;
 
-    if (open HISTORY,'>',"$hist_file") {
+    if (open my $hist_fh,'>',"$hist_file") {
         foreach my $url (keys %$postings) {
             if ($freshness > $$postings{$url}) {
-                print HISTORY join('::',$url,$$postings{$url}),"\n";
+                print $hist_fh join('::',$url,$$postings{$url}),"\n";
             }
         }
-        close HISTORY;
+        close $hist_fh;
     } else {
         # Be noisy about our inability to track things.
         err_msg("unable to open $hist_file for writing; $!",0);
