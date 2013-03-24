@@ -389,7 +389,9 @@ sub examine_posting {
     ($date) = $body =~ /Posted:\s+\<date\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi;
     ($title) = $body =~ /postingTitle = "([^"]*)/gi;
 
-    if ($title =~ /\(([^)]+)\)$/) {
+    $title = "Job Not Titled?" unless ($title);
+
+    if ($title && $title =~ /\(([^)]+)\)$/) {
         $area = $1;
         $title =~ s/\s+\($area\)//;
     }
@@ -405,7 +407,9 @@ sub examine_posting {
             $score += scalar(@count)*$$terms{$term};
         }
         # Bonus score if the term is found in the job title
-        $score += $$terms{$term} if ($title =~ /$term/i);
+        if ($title && $title =~ /$term/i) {
+            $score += $$terms{$term};
+        }
     }
 
     print "examined: $url score: $score\n" if ($VERBOSE);
