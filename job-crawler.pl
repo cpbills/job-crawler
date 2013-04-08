@@ -90,7 +90,7 @@ foreach my $locale (split(/\s+/,$$options{locale})) {
         my $postings = get_page("$url");
         if ($postings) {
             # Scrape HTML for post URLs and descriptions
-            my @posting_urls = ($postings =~ /(http.*[0-9]+\.html)"/gim);
+            my @posting_urls = ($postings =~ /(http[^"]*[0-9]+\.html)"/gim);
             foreach my $url (@posting_urls) {
                 unless ($$history{$url}) {
                     my $result = examine_posting($url,$$options{terms});
