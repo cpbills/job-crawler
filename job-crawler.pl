@@ -386,7 +386,7 @@ sub examine_posting {
     my $body    = get_page($url);
     return unless (defined $body);
 
-    ($date) = $body =~ /Posted:\s+\<date\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi;
+    ($date) = $body =~ /Posted:\s+\<date[^>]*\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi;
     ($title) = $body =~ /postingTitle = "([^"]*)/gi;
 
     $title = "Job Not Titled?" unless ($title);
