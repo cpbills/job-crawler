@@ -403,7 +403,7 @@ sub examine_posting {
 
     $title = "Job Not Titled?" unless ($title);
 
-    if ($title && $title =~ /\(([^)]+)\)$/) {
+    if ($title && $title =~ /\(([^()]+)\)$/) {
         $area = $1;
         $title =~ s/\s+\($area\)//;
     }
