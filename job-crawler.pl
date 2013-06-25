@@ -84,22 +84,34 @@ my @depths = qw( / /index100.html /index200.html
                    /index300.html /index400.html /index500.html );
 
 foreach my $locale (split(/\s+/,$$options{locale})) {
-    my $base = "http://$locale.craigslist.org/$$options{section}";
+    my $base = "http://$locale.craigslist.org";
     for my $depth ( 0 .. $$options{depth} ) {
-        my $url = "$base" . "$depths[$depth]";
+        my $url = "$base/$$options{section}" . "$depths[$depth]";
         my $postings = get_page("$url");
         if ($postings) {
-            # Scrape HTML for post URLs and descriptions
-            my @posting_urls = ($postings =~ /(http[^"]*[0-9]+\.html)"/gim);
-            foreach my $url (@posting_urls) {
-                unless ($$history{$url}) {
-                    my $result = examine_posting($url,$$options{terms});
+            # Scrape HTML for post URLs
+            # posting URLs are 10 digits then .html
+            my @relative_urls = ($postings =~ /"(\/[^"]*[0-9]+\.html)"/gim);
+            my @absolute_urls = ($postings =~ /"(http[^"]*[0-9]+\.html)"/gim);
+
+            # hash for getting rid of duplicate post URLs
+            my %post_hash = ();
+
+            foreach my $url (@relative_urls) {
+                $post_hash{"$base$url"} = 1;
+            }
+            foreach my $url (@absolute_urls) {
+                $post_hash{"$url"} = 1;
+            }
+            foreach my $posting (keys %post_hash) {
+                unless ($$history{$posting}) {
+                    my $result = examine_posting($posting,$$options{terms});
                     if ($result) {
                         push @matches, $result;
                     }
                 }
                 # Set the 'age' to 1
-                $$history{$url} = 1;
+                $$history{$posting} = 1;
             }
             if ($$options{history}) {
                 # save URL history
