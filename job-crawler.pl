@@ -268,7 +268,6 @@ sub verify_options {
     return $success;
 }
 
-
 sub read_history {
     my $hist_file = shift;
 
@@ -296,28 +295,13 @@ sub send_email {
     my $results     = shift;
     my $sendmail    = shift;
 
-    $results =~ s/\n/<br\/>\n/g;
-
     my $email_content = qq{Subject: $subject
 X-Oddity: The ducks in the bathroom are not mine
-Content-Type: multipart/alternative; boundary="_424242_"
 To: $email_addr
 From: $email_addr
-
---_424242_
 Content-Type: text/plain; charset="iso-8859-1"
-$results
---_424242_
-Content-Type: text/html; charset="iso-8859-1"
-<html>
-    <body style="font-family:'Courier New',monospace;">
-    <p style="font-family:'Courier New',Courier,monospace;">
-$results
-    </p>
-    </body>
-</html>
 
---_424242_--
+$results
 };
     if ($VERBOSE) {
         print "sending an email to $email_addr\n";
@@ -341,8 +325,6 @@ sub create_results {
 
     # Sort matches by score
     my @sorted = sort {
-        # Items in @matches are formatted as:
-        # DATE: [SCORE] (AREA) <a href='URL'>TITLE</a>\n
         my ($date_a,$score_a) = $a =~ /([0-9-]*):.*\[\s+([0-9]+)/;
         my ($date_b,$score_b) = $b =~ /([0-9-]*):.*\[\s+([0-9]+)/;
         return -1 if ($score_a > $score_b);
@@ -428,8 +410,11 @@ sub examine_posting {
 
     my $fscore = sprintf("% 3i",$score);
     # Create a summary of the job posting;
-    my $summary  = "$date: [$fscore] ($area) <a href='$url'>$title</a>\n";
-       $summary .= join(', ',@found) . "\n\n";
+    my $summary  = "Date:       $date\n";
+       $summary .= "Title:      $title\n";
+       $summary .= "Location:   $area\n";
+       $summary .= "URL:        $url\n";
+       $summary .= "Keywords:   " . join(', ',@found) . "\n\n";
 
     if ($score >= $$options{threshold}) {
         return $summary;
