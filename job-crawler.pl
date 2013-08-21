@@ -410,10 +410,11 @@ sub examine_posting {
 
     my $fscore = sprintf("% 3i",$score);
     # Create a summary of the job posting;
-    my $summary  = "Date:       $date\n";
+    my $summary  = "Score:      $fscore\n";
        $summary .= "Title:      $title\n";
        $summary .= "Location:   $area\n";
        $summary .= "URL:        $url\n";
+       $summary .= "Date:       $date\n";
        $summary .= "Keywords:   " . join(', ',@found) . "\n\n";
 
     if ($score >= $$options{threshold}) {
