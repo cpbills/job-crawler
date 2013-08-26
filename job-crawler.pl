@@ -174,24 +174,25 @@ sub read_config {
             $line =~ s/\s+/\ /g;
 
             my ($option,$value) = split(/\ /,$line,2);
-            if ($options{$option}) {
-                # check for 'overloadable' options
-                if ($option eq 'locale') {
-                    $options{$option} = join(' ',$options{$option},$value);
-                } elsif ($option eq 'term') {
-                    # Special handing for 'terms' data
-                    # grab the score from the end of $line and leave 'term'
-                    $value =~ s/\ ([-0-9]+)$//;
-                    $terms{"$value"} = $1;
-                } else {
+            if ($option eq 'locale') {
+                # Initialize this hash element
+                unless ($options{$option}) {
+                    $options{$option} = '';
+                }
+                $options{$option} = join(' ',$options{$option},$value);
+            } elsif ($option eq 'term') {
+                # Special handing for 'terms' data
+                # grab the score from the end of $line and leave 'term'
+                $value =~ s/\ ([-0-9]+)$//;
+                $terms{"$value"} = $1;
+            } else {
+                if ($options{$option}) {
                     err_msg("Option $option previously defined",0);
                 }
-            } else {
                 $options{$option} = $value;
             }
         }
         close $conf_fh;
-
         # Special handling for the 'terms' data
         if (scalar(keys %terms)) {
             $options{terms} = \%terms;
