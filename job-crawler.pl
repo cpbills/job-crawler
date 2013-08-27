@@ -58,18 +58,14 @@ $VERBOSE = 1 if ($$options{verbose} or $opts{v});
 $$options{email} = $opts{e} if (defined $opts{e});
 $$options{depth} = $opts{d} if (defined $opts{d});
 
-if ($VERBOSE) {
-    print "Using $config_file for configuration\n";
+debug_msg("Using $config_file for configuration");
+
+my $missing_options = verify_options($options);
+if ($missing_options) {
+    # exit if the options are broken
+    error_msg("Required options not defined: $missing_options",1);
 }
 
-unless (verify_options($options)) {
-    # exit if the options are broke
-    err_msg('Required options not defined',1);
-}
-
-
-# Track errors encountered while processing job postings
-my $errors = '';
 
 my @matches = ();
 
@@ -118,15 +114,11 @@ foreach my $locale (split(/\s+/,$$options{locale})) {
                 save_history($$options{history},$history,$$options{freshness});
             }
         } else {
-            my $error = "failed to get listings: $! ($url)";
-            if ($VERBOSE) {
-                err_msg($error,0);
-            }
-            $errors .= "$error\n";
+            error_msg("Failed to get $url: $!",0);
         }
     }
 }
-my $results = create_results($errors,@matches);
+my $results = create_results(@matches);
 
 if ($results && $$options{send_email}) {
     send_email($$options{email},$subject,$results,$$options{sendmail});
@@ -175,11 +167,11 @@ sub read_config {
 
             my ($option,$value) = split(/\ /,$line,2);
             if ($option eq 'locale') {
-                # Initialize this hash element
-                unless ($options{$option}) {
-                    $options{$option} = '';
+                if ($options{$option}) {
+                    $options{$option} = join(' ',$options{$option},$value);
+                } else {
+                    $options{$option} = $value;
                 }
-                $options{$option} = join(' ',$options{$option},$value);
             } elsif ($option eq 'term') {
                 # Special handing for 'terms' data
                 # grab the score from the end of $line and leave 'term'
@@ -187,7 +179,7 @@ sub read_config {
                 $terms{"$value"} = $1;
             } else {
                 if ($options{$option}) {
-                    err_msg("Option $option previously defined",0);
+                    debug_msg("\'$option\' previously defined");
                 }
                 $options{$option} = $value;
             }
@@ -200,7 +192,7 @@ sub read_config {
             $options{terms} = 0;
         }
     } else {
-        err_msg("Unable to open $conf_file: $!",1);
+        error_msg("Unable to open $conf_file: $!",1);
     }
 
     $options{depth} = 0 unless (defined $options{depth});
@@ -210,7 +202,7 @@ sub read_config {
     return \%options;
 }
 
-sub err_msg {
+sub error_msg {
     # Function to 'standardize' error output
     my $message = shift;
     # 0 is non-fatal, non-zero exits with that value
@@ -218,55 +210,64 @@ sub err_msg {
 
     print STDERR "$message\n";
     if ($err_lvl) {
-        usage();
         exit $err_lvl;
     }
+    return;
+}
+
+sub debug_msg {
+    # Function to standardize debug output
+    my $message     = shift;
+
+    if ($VERBOSE) {
+        print "$message\n";
+    }
+    return;
 }
 
 sub verify_options {
     # Check that required options are set, as expected.
     my $options = shift;
 
-    my $success = 1;
+    my @missing = ();
 
-    if ($$options{terms} == 0) {
-        $success = 0;
-        err_msg('No search terms have been defined.',0);
+    unless ($$options{terms}) {
+        push @missing, 'term';
     }
 
-    if (scalar(split(/\s+/,$$options{locale})) == 0) {
-        $success = 0;
-        err_msg('No search locales have been defined.',0);
+    unless ($$options{locale}) {
+        push @missing, 'locale';
     }
 
     unless ($$options{section}) {
-        $success = 0;
-        err_msg('No section to search defined.',0);
+        push @missing, 'section';
     }
 
     if ($$options{send_email}) {
         unless ($$options{email}) {
             $$options{send_email} = 0;
-            err_msg('No email address defined, not sending mail.',0);
+            debug_msg('No email address defined, not sending mail.');
         }
         if ($$options{sendmail}) {
             my ($bin) = split(/\s*/,$$options{sendmail});
             unless (-e "$bin" && -x "$bin") {
                 $$options{send_email} = 0;
-                err_msg("Sendmail binary ($bin) not found, not sending mail",0);
+                debug_msg("Sendmail ($bin) not found, not sending mail");
             }
         } else {
             $$options{send_email} = 0;
-            err_msg('Path to sendmail not defined, not sending mail.',0);
+            debug_msg('Path to sendmail not defined, not sending mail.');
         }
     }
 
     unless ($$options{history}) {
         $$options{history} = 0;
-        err_msg('No history file defined, not using URL history.',0);
+        debug_msg('History file undefined; not using URL history.');
     }
-
-    return $success;
+    if (scalar(@missing) > 0) {
+        return join(' ',@missing);
+    }
+    return '';
 }
 
 sub read_history {
@@ -283,7 +284,7 @@ sub read_history {
         }
         close $hist_fh;
     } else {
-        err_msg("Failed to open $hist_file; $!",0);
+        error_msg("Failed to open $hist_file: $!",0);
     }
 
     # return a hash reference (for easier passing between functions...)
@@ -304,21 +305,19 @@ Content-Type: text/plain; charset="iso-8859-1"
 
 $results
 };
-    if ($VERBOSE) {
-        print "sending an email to $email_addr\n";
-        print $email_content;
-    }
+
+    debug_msg("Sending email to $email_addr");
+    debug_msg("$email_content");
 
     if (open my $email_pipe,'|-',"$sendmail") {
         print $email_pipe $email_content;
         close $email_pipe;
     } else {
-        err_msg("Cannot open $sendmail: $!",0);
+        error_msg("Cannot open $sendmail: $!",0);
     }
 }
 
 sub create_results {
-    my $errors      = shift;
     my @matches     = @_;
 
     # Return if there are no matches
@@ -338,10 +337,7 @@ sub create_results {
         $results .= $posting;
     }
 
-    $results = "$results\n$errors\n";
-    if ($VERBOSE) {
-        print "$results";
-    }
+    debug_msg("$results");
 
     return $results;
 }
@@ -358,9 +354,7 @@ sub get_page {
         sleep $$options{delay};
         return $res->content;
     }
-    if ($VERBOSE) {
-        err_msg("problem fetching $url ($!)",0);
-    }
+    error_msg("Problem fetching $url ($!)",0);
     return;
 }
 
@@ -407,7 +401,7 @@ sub examine_posting {
         }
     }
 
-    print "examined: $url score: $score\n" if ($VERBOSE);
+    debug_msg("Score: $score\t$url");
 
     my $fscore = sprintf("% 3i",$score);
     # Create a summary of the job posting;
@@ -443,6 +437,6 @@ sub save_history {
         close $hist_fh;
     } else {
         # Be noisy about our inability to track things.
-        err_msg("unable to open $hist_file for writing; $!",0);
+        error_msg("Unable to open $hist_file for writing; $!",0);
     }
 }
