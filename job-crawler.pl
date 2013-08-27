@@ -66,7 +66,6 @@ if ($missing_options) {
     error_msg("Required options not defined: $missing_options",1);
 }
 
-
 my @matches = ();
 
 # read in previously searched job listing data...
@@ -75,56 +74,87 @@ if ($$options{history} && -e "$$options{history}") {
     $history = read_history($$options{history});
 }
 
-# Craig's List has 'static' URLs for 1-100 jobs, 101-200 and so on.
-my @depths = qw( / /index100.html /index200.html
-                   /index300.html /index400.html /index500.html );
-
+my %results = ();
 foreach my $locale (split(/\s+/,$$options{locale})) {
-    my $base = "http://$locale.craigslist.org";
-    for my $depth ( 0 .. $$options{depth} ) {
-        my $url = "$base/$$options{section}" . "$depths[$depth]";
-        my $postings = get_page("$url");
-        if ($postings) {
-            # Scrape HTML for post URLs
-            # posting URLs are 10 digits then .html
-            my @relative_urls = ($postings =~ /"(\/[^"]*[0-9]+\.html)"/gim);
-            my @absolute_urls = ($postings =~ /"(http[^"]*[0-9]+\.html)"/gim);
-
-            # hash for getting rid of duplicate post URLs
-            my %post_hash = ();
-
-            foreach my $url (@relative_urls) {
-                $post_hash{"$base$url"} = 1;
-            }
-            foreach my $url (@absolute_urls) {
-                $post_hash{"$url"} = 1;
-            }
-            foreach my $posting (keys %post_hash) {
-                unless ($$history{$posting}) {
-                    my $result = examine_posting($posting,$$options{terms});
-                    if ($result) {
-                        push @matches, $result;
-                    }
+    my @post_urls = scrape_locale($locale,$$options{section},$$options{depth});
+    foreach my $post_url (@post_urls) {
+        unless ($$history{$post_url}) {
+            my ($title,$area,$date,$body) = scan_post($post_url);
+            if ($title && $body) {
+                my ($score,$found) = score_post($title,$body,$$options{terms});
+                debug_msg("score: $score\t$post_url");
+                if ($score >= $$options{threshold}) {
+                    $results{$post_url}{score}  = $score;
+                    $results{$post_url}{region} = $area;
+                    $results{$post_url}{title}  = $title;
+                    $results{$post_url}{found}  = $found;
+                    $results{$post_url}{date}   = $date;
                 }
-                # Set the 'age' to 1
-                $$history{$posting} = 1;
+            } else {
+                error_msg("Scanning $post_url failed",0);
             }
-            if ($$options{history}) {
-                # save URL history
-                save_history($$options{history},$history,$$options{freshness});
-            }
-        } else {
-            error_msg("Failed to get $url: $!",0);
         }
+        # Set post 'age' to 1 to indicate it is 'live'
+        $$history{$post_url} = 1;
     }
 }
-my $results = create_results(@matches);
 
-if ($results && $$options{send_email}) {
-    send_email($$options{email},$subject,$results,$$options{sendmail});
+if ($$options{history}) {
+    # save URL history
+    save_history($$options{history},$history,$$options{freshness});
 }
 
+my $output = format_results(\%results);
+
+print "$output\n";
+
+if ($output && $$options{send_email}) {
+    send_mail($$options{email},$$options{sendmail},$subject,$output);
+}
 exit 0;
+
+sub format_results {
+    my $results     = shift;
+
+    my $output = '';
+
+    # sort the results by score
+    my @sorted_results = sort {
+        $$results{$b}{score}
+            <=>
+        $$results{$a}{score}
+    } keys %$results;
+
+    foreach my $result (@sorted_results) {
+        my $keywords = format_keywords($$results{$result}{found});
+        $output .=<<ENDL
+Score:      $results{$result}{score}
+Title:      $results{$result}{title}
+Location:   $results{$result}{region}
+URL:        $result
+Date:       $results{$result}{date}
+Keywords:   $keywords
+
+ENDL
+    }
+    return $output;
+}
+
+sub format_keywords {
+    my $kw_hash = shift;
+
+    my @keywords = ();
+    foreach my $kw (keys %$kw_hash) {
+        push @keywords, "$kw\[$$kw_hash{$kw}\]";
+    }
+    if (scalar(@keywords) > 0) {
+        my $keywords = join(', ',@keywords);
+        return $keywords;
+    } else {
+        # this should not happen, but just in case...
+        return 'No Keywords';
+    }
+}
 
 sub usage {
     print qq{usage: $0 [option]...
@@ -291,11 +321,11 @@ sub read_history {
     return \%history;
 }
 
-sub send_email {
+sub send_mail {
     my $email_addr  = shift;
+    my $sendmail    = shift;
     my $subject     = shift;
     my $results     = shift;
-    my $sendmail    = shift;
 
     my $email_content = qq{Subject: $subject
 X-Oddity: The ducks in the bathroom are not mine
@@ -317,31 +347,6 @@ $results
     }
 }
 
-sub create_results {
-    my @matches     = @_;
-
-    # Return if there are no matches
-    return unless (scalar(@matches) > 0);
-
-    # Sort matches by score
-    my @sorted = sort {
-        my ($date_a,$score_a) = $a =~ /([0-9-]*):.*\[\s+([0-9]+)/;
-        my ($date_b,$score_b) = $b =~ /([0-9-]*):.*\[\s+([0-9]+)/;
-        return -1 if ($score_a > $score_b);
-        return  1 if ($score_b > $score_a);
-        return 0;
-    } @matches;
-
-    my $results = '';
-    foreach my $posting (@sorted) {
-        $results .= $posting;
-    }
-
-    debug_msg("$results");
-
-    return $results;
-}
-
 sub get_page {
     my $url = shift;
 
@@ -358,65 +363,116 @@ sub get_page {
     return;
 }
 
-sub examine_posting {
+sub scrape_locale {
+    # Scrape postings in a provided region and section
+    my $region  = shift;
+    my $section = shift;
+    my $depth   = shift;
+
+    # Currently CL has static URLs for 1-100, 101-200, 201-300, etc postings
+    my @depths = qw(
+        / /index100.html /index200.html /index300.html
+        /index400.html /index500.html
+    );
+    my $region_url = "http://$region.craigslist.org";
+
+    # hash for getting rid of duplicate post URLs
+    my %unique_posts = ();
+
+    for my $depth ( 0 .. $depth ) {
+        my $posts_url = "$region_url/$section" . "$depths[$depth]";
+        my $postings = get_page("$posts_url");
+        if ($postings) {
+            # Scrape HTML for post URLs
+            # posting URLs are 10 digits then .html
+            my @relative_urls = ($postings =~ /"(\/[^"]*[0-9]+\.html)"/gim);
+            my @absolute_urls = ($postings =~ /"(http[^"]*[0-9]+\.html)"/gim);
+
+            foreach my $url (@relative_urls) {
+                $unique_posts{"$region_url$url"} = 1;
+            }
+            foreach my $url (@absolute_urls) {
+                $unique_posts{"$url"} = 1;
+            }
+        } else {
+            debug("failed to scrape posts: $! ($posts_url)",0);
+        }
+    }
+    return keys %unique_posts;
+}
+
+sub score_post {
+    # Scans the text of the post for keywords
+    # Inputs: post title, post body, hashref of scores
+    # Output: the post's score and a hash of found keywords
+
+    my $title   = shift;
+    my $body    = shift;
+    my $scores  = shift;
+
+    my %found   = ();
+    my $score   = 0;
+
+    foreach my $term (keys %$scores) {
+        my @matches = $body =~ /\b$term\b/gis;
+        my $count = scalar(@matches);
+        if ($count > 0) {
+            $found{$term} = $count;
+            $score += $count * $$scores{$term};
+        }
+        if ($title && $title =~ /$term/i) {
+            $score += $$scores{$term};
+        }
+    }
+    return ($score,\%found);
+}
+
+sub scan_post {
     # Scan a Craig's List posting for configured search terms
-    # Returns text if the posting meets a threshold requirement
+    # Returns a summary if the post meets score requirement
+
+    # This function makes a few assumptions about the CL post's format.
+    # This function may need to be frequently revised.
     my $url     = shift;
-    my $terms   = shift;
+    my $scores  = shift;
 
     my $score   = 0;
 
     # Terms found in job posting
     my @found = ();
 
-    my $title   = '';
-    my $area    = '???';
+    my $title   = 'No Title';
+    my $region  = '???';
     my $date    = '????-??-??';
+
     my $body    = get_page($url);
-    return unless (defined $body);
-
-    ($date) = $body =~ /Posted:\s+\<date[^>]*\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi;
-    ($title) = $body =~ /postingTitle = "([^"]*)/gi;
-
-    $title = "Job Not Titled?" unless ($title);
-
-    if ($title && $title =~ /\(([^()]+)\)$/) {
-        $area = $1;
-        $title =~ s/\s+\($area\)//;
+    unless (defined $body) {
+        return (0,0,0,0);
     }
 
+    if ($body =~ /<title>(.*?)<\/title>/gi) {
+        $title = $1;
+    }
+
+    if ($body =~ /postingTitle = "([^"]*)/gi) {
+        $region = $1;
+    }
+    # Quote the $title contents, in case they contain ()s and other chars
+    $region =~ s/^\Q$title\E\s*//;
+    # Remove the first and last parens from $region
+    $region =~ s/^\(//;
+    $region =~ s/\)$//;
+
+    if ($body =~ /Posted:\s+\<date[^>]*\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi) {
+        $date = $1;
+    }
+
+    # Drop everything leading up to the post content
     $body =~ s/^.*\<section id=\"postingbody\"\>//gis;
+    # Drop everything after the post content
     $body =~ s/\<\/section\>.*//gis;
 
-    foreach my $term (keys %$terms) {
-        my @count = $body =~ /\b$term\b/igs;
-        if (scalar(@count) > 0) {
-            my $term_count = $term . '[' . scalar(@count) . ']';
-            push @found, $term_count;
-            $score += scalar(@count)*$$terms{$term};
-        }
-        # Bonus score if the term is found in the job title
-        if ($title && $title =~ /$term/i) {
-            $score += $$terms{$term};
-        }
-    }
-
-    debug_msg("Score: $score\t$url");
-
-    my $fscore = sprintf("% 3i",$score);
-    # Create a summary of the job posting;
-    my $summary  = "Score:      $fscore\n";
-       $summary .= "Title:      $title\n";
-       $summary .= "Location:   $area\n";
-       $summary .= "URL:        $url\n";
-       $summary .= "Date:       $date\n";
-       $summary .= "Keywords:   " . join(', ',@found) . "\n\n";
-
-    if ($score >= $$options{threshold}) {
-        return $summary;
-    } else {
-        return;
-    }
+    return ($title, $region, $date, $body);
 }
 
 sub save_history {
