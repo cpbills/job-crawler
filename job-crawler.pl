@@ -463,7 +463,7 @@ sub scan_post {
     $region =~ s/^\(//;
     $region =~ s/\)$//;
 
-    if ($body =~ /Posted:\s+\<date[^>]*\>([0-9]{4}-[0-9]{2}-[0-9]{2})/gi) {
+    if ($body =~ /datetime="([0-9]{4}-[0-9]{2}-[0-9]{2})/gi) {
         $date = $1;
     }
 
