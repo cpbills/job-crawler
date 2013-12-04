@@ -454,7 +454,7 @@ sub scan_post {
         $title = $1;
     }
 
-    if ($body =~ /postingTitle = "([^"]*)/gi) {
+    if ($body =~ /Location:\s*([^<]*)/gi) {
         $region = $1;
     }
     # Quote the $title contents, in case they contain ()s and other chars
